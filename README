@@ -1,0 +1,8 @@
+METARV -- cli tool that provides weather from METAR codes.
+====
+
+Large parts of the software is not implemented yet, but preliminary uses
+should be functional.
+
+In case no Vala compiler present, you could use the translated C version,
+which should be compile finely with gcc.
