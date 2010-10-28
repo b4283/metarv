@@ -1,8 +1,19 @@
 METARV -- cli tool that provides weather from METAR codes.
-====
 
 Large parts of the software is not implemented yet, but preliminary uses
 should be functional.
 
-In case no Vala compiler present, you could use the translated C version,
-which should be compile finely with gcc.
+====
+
+Usage:
+  metarv [OPTION...] - provides weather conditions decoded from METAR codes.
+
+Help Options:
+  -h, --help                Show help options
+
+Application Options:
+  -s, --site=<name>         specify metar station.
+  -t, --output=<type>       output type: [general|raw|format] (default: general).
+  -f, --format=<string>     customized formatted string. use '--format help' for more detail.
+  -i, --imperial            use imperial units (feet, miles, fahrenheit), default is metric.
+

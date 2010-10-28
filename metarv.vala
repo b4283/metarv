@@ -26,9 +26,9 @@ class Config : Object {
 	class CmdOpt : Object {
 		static const OptionEntry[] opts = {
 			{ "site", 's', 0, OptionArg.STRING, ref site_name, "specify metar station.", "<name>" }, 
-			{ "output", 'o', 0, OptionArg.STRING, ref output_type, "output type: [general|raw|format] (default: general).", "<type>" }, 
+			{ "output", 't', 0, OptionArg.STRING, ref output_type, "output type: [general|raw|format] (default: general).", "<type>" }, 
 			{ "format", 'f', 0, OptionArg.STRING, ref format_output, "customized formatted string. use '--format help' for more detail.", "<string>" }, 
-			{ "imperial", 'i', 0, OptionArg.NONE, ref imperial_units, "use imperial units (feet, fahrenheit, etc.), default is metric.", null },
+			{ "imperial", 'i', 0, OptionArg.NONE, ref imperial_units, "use imperial units (feet, miles, fahrenheit), default is metric.", null },
 			{ null }
 		};
 	
@@ -180,24 +180,27 @@ class WeatherSite : Object {
 	}
 
 	private void write_last () {
-		var f = File.new_for_path(config.last_file);
-		var stream = f.replace(null, false, FileCreateFlags.NONE);
-		var s = new DataOutputStream(stream);
-		s.put_string(raw_text);
+		try {
+			var f = File.new_for_path(config.last_file);
+			var stream = f.replace(null, false, FileCreateFlags.NONE);
+			var s = new DataOutputStream(stream);
+			s.put_string(raw_text);
+		} catch (Error e) {
+			stderr.printf("(warning) %s\n(warning) There will be no cache until fixed.\n\n", e.message);
+		}
 	}
 }
 
 class DecodedData : Object {
 	public string raw_code;
 	public string short_name;
-	public string full_name;
 	public double temperature;
 	public double dew_point;
 	public double wind_speed;
-	public double wind_direction;
+	public string wind_direction;
 	public double wind_gust;
 	public string wind_unit;
-	public double wind_variation[2];
+	public string wind_variation[2];
 	public double visibility;
 	public double atmo_pressure;
 	public DateTime local;
@@ -245,7 +248,7 @@ class DecodedData : Object {
 			
 			// Wind OOXX
 			if ((flags & Flags.WIND) == 0 && /^[0-9G]+(MPS|KT)$/.match(val)) {
-				wind_direction = val[0:3].to_int();
+				wind_direction = val[0:3];
 				wind_speed = val[3:5].to_int();
 				int i = 5;
 				if (val[5] == 'G') {
@@ -278,8 +281,8 @@ class DecodedData : Object {
 			// Wind Variation
 			if ((flags & Flags.WIND_VARY) == 0 && /^[0-9]{3}V[0-9]{3}$/.match(val)) {
 				string[] temp = val.split("V");
-				wind_variation[0] = temp[0].to_double();
-				wind_variation[1] = temp[1].to_double();
+				wind_variation[0] = temp[0];
+				wind_variation[1] = temp[1];
 
 				flags |= Flags.WIND_VARY;
 			}
@@ -347,13 +350,15 @@ class Formatter : Object {
 	public void output () {
 		switch (config.output_type) {
 			case "general":
-				print (@"Local time  : $(data.local.to_string())\n");
+				print (@"Location    : %s, %s (%s)\n", GLOBAL[data.short_name].nth_data(3), GLOBAL[data.short_name].nth_data(5), data.short_name);
+				print (@"Local time  : %s\n", data.local.format("%F  %I:%M %p"));
 				print (@"Temperature : $(data.temperature) C\n");
 				print (@"Dew point   : $(data.dew_point) C\n");
-				print (@"Wind        : $(data.wind_direction) at $(data.wind_speed) knot ($(data.wind_speed*1.852) KM/h)\n");
-				if (data.wind_variation[0] != 0 && data.wind_variation[1] != 0) {
-					print (@"              varying between $(data.wind_variation[0]) and $(data.wind_variation[1])\n");
+				print (@"Wind        : $(data.wind_direction) ");
+				if (data.wind_variation[0].length != 0 && data.wind_variation[1].length != 0) {
+					print (@"($(data.wind_variation[0]) - $(data.wind_variation[1]))\n");
 				}
+				print (@"Wind Speed  : $(data.wind_speed) kt (%.2f KM/hr)\n", data.wind_speed * 1.852);
 				print (@"Visibility  : ");
 				if (data.visibility > 1000)
 					print ("%.2f KM\n", data.visibility / 1000);
@@ -377,6 +382,63 @@ class Formatter : Object {
 
 }
 
+class SiteInfo : Object {
+	private List<List<string>> list;
+
+	public unowned List<string>? get (string s1) {
+		var s = s1.up();
+		if (/^[A-Z]{4}$/.match(s) == false)
+			return null;
+		unowned List<List<string>> iter = list.first();
+		while (iter.data.nth_data(2) != s) {
+			iter = iter.next;
+		}
+		return iter.data; 
+	}
+
+	public SiteInfo () {
+		list = new List<List<string>> ();
+		try {
+			var f_input = File.new_for_path ("stations.gz").read();
+			var conv_input = new ConverterInputStream (f_input, new ZlibDecompressor(ZlibCompressorFormat.GZIP));
+			var line_stream = new DataInputStream (conv_input);
+
+			for (var line = line_stream.read_line(null); line != null; line = line_stream.read_line(null)) {
+				var temp = new List<string> ();
+
+				var array = line.split(";");
+				for (int i=0; i<array.length; i++) {
+					temp.prepend(array[i]);
+				}
+				temp.reverse();
+				list.prepend((owned) temp);
+			}
+			list.reverse();
+		} catch (Error e) {
+			stderr.printf("(warning) Unable to read '%s', this file should have been shipped with metarv.\n", "stations.gz");
+		}
+	}
+}
+
+static SiteInfo GLOBAL;
+
+// GLOBAL is a singleton-like class, which is initialized only once during main()
+// query GLOBAL[<site name>] to get a List where its data structure looks like follows:
+// .nth_data(0)  = block_number;
+// .nth_data(1)  = station_number;
+// .nth_data(2)  = icao_name;
+// .nth_data(3)  = good_name;
+// .nth_data(4)  = us_state;
+// .nth_data(5)  = country;
+// .nth_data(6)  = wmo_region;
+// .nth_data(7)  = latitude;
+// .nth_data(8)  = longtitude;
+// .nth_data(9)  = upper_latitude;
+// .nth_data(10) = upper_longtitude;
+// .nth_data(11) = elevation;
+// .nth_data(12) = upper_elevation;
+// .nth_data(13) = rbsn;
+
 class Metar : Object {
 
 	public static void abnormal_exit(Error e, string str = "") {
@@ -386,6 +448,7 @@ class Metar : Object {
 	}
 
 	public static int main (string[] args) {
+		GLOBAL = new SiteInfo ();
 
 		var config = new Config(args);
 		var site = new WeatherSite(config);
