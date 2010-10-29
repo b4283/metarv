@@ -1,4 +1,4 @@
-METARV -- cli tool that provides weather from METAR codes.
+metarv -- cli tool that provides weather from METAR codes.
 
 Large parts of the software is not implemented yet, but preliminary uses
 should be functional.

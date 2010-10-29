@@ -11,7 +11,7 @@ class Config : Object {
 	//private string config_path = Environment.get_home_dir() + "/.metarvrc";
 	private string config_path = "./metarvrc";
 	
-	public string last_file = "/tmp/metarv.last";
+	public static string last_file = "/tmp/metarv.last";
 
 	public static string site_name 		= "rckh";
 	public static string server_name 	= "weather.noaa.gov";
@@ -191,16 +191,83 @@ class WeatherSite : Object {
 	}
 }
 
+
+
 class DecodedData : Object {
+
+	public class Wind : Object {
+		
+		public class Speed : Object {
+			private double speed;
+			private bool is_kt;
+
+			public Speed (bool is_kt, double speed) {
+				this.speed = speed;
+				this.is_kt = is_kt;
+			}
+
+			public double get_mps () {
+				if (is_kt)
+					return speed*0.51444444;
+				return speed;
+			}
+
+			public double get_kt () {
+				if (is_kt)
+					return speed;
+				return speed*1.9438445;
+			}
+
+			public double get_mph () {
+				if (is_kt)
+					return speed*1.1507794;
+				return speed*2.2369363;
+			}
+
+			public double get_kmph () {
+				if (is_kt)
+					return speed*1.852;
+				return speed*3.6;
+			}
+		}
+
+		public string direction;
+		
+		public Speed speed;
+		public bool has_gust = false;
+		public Speed gust;
+
+		public bool has_vary = false;
+		public string vary1;
+		public string vary2;
+
+		//public Wind () {}
+
+		public void set_wind (bool is_kt, double number, string dir) {
+			// type directly provided by METAR, either KT or MPS
+			this.speed = new Speed (is_kt, number);
+			this.direction = dir;
+		}
+
+		public void set_gust (bool is_kt, double number) {
+			this.gust = new Speed (is_kt, number);
+			this.has_gust = true;
+		}
+
+		public void set_vary (string dir1, string dir2) {
+			if (vary1 != vary2 && has_vary == false) {
+				vary1 = dir1;
+				vary2 = dir2;
+				has_vary = true;
+			}
+		}
+	}
+
 	public string raw_code;
 	public string short_name;
 	public double temperature;
 	public double dew_point;
-	public double wind_speed;
-	public string wind_direction;
-	public double wind_gust;
-	public string wind_unit;
-	public string wind_variation[2];
+	public Wind wind;
 	public double visibility;
 	public double atmo_pressure;
 	public DateTime local;
@@ -220,6 +287,9 @@ class DecodedData : Object {
 	}
 
 	public DecodedData (string raw) {
+
+		wind = new Wind ();
+
 		raw_code = raw;
 		var k = raw.split(" ");
 
@@ -247,21 +317,25 @@ class DecodedData : Object {
 			}
 			
 			// Wind OOXX
-			if ((flags & Flags.WIND) == 0 && /^[0-9G]+(MPS|KT)$/.match(val)) {
-				wind_direction = val[0:3];
-				wind_speed = val[3:5].to_int();
+			if ((flags & Flags.WIND) == 0 && /^(VRB)?[0-9G]+(MPS|KT)$/.match(val)) {
+				string dirt = val[0:3];
+				double speed = val[3:5].to_int();
+				double gust = -1;
+
 				int i = 5;
 				if (val[5] == 'G') {
-					wind_gust = val[6:8].to_double();
+					gust = val[6:8].to_double();
 					i = 8;
-				} else {
-					wind_gust = 0;
 				}
-				wind_unit = val.substring(i);
-				if (wind_unit == "MPS") {
-					wind_gust *= 1.9438445;
-					wind_speed *= 1.9438445;
-				}
+
+				bool kt = true;
+				if (val.substring(i) == "MPS")
+					kt = false;
+				
+				if (gust != -1)
+					wind.set_gust (kt, gust);
+				wind.set_wind (kt, speed, dirt); 
+
 				flags |= Flags.WIND;
 			}
 
@@ -281,8 +355,7 @@ class DecodedData : Object {
 			// Wind Variation
 			if ((flags & Flags.WIND_VARY) == 0 && /^[0-9]{3}V[0-9]{3}$/.match(val)) {
 				string[] temp = val.split("V");
-				wind_variation[0] = temp[0];
-				wind_variation[1] = temp[1];
+				wind.set_vary (temp[0], temp[1]);
 
 				flags |= Flags.WIND_VARY;
 			}
@@ -351,14 +424,14 @@ class Formatter : Object {
 		switch (config.output_type) {
 			case "general":
 				print (@"Location    : %s, %s (%s)\n", GLOBAL[data.short_name].nth_data(3), GLOBAL[data.short_name].nth_data(5), data.short_name);
-				print (@"Local time  : %s\n", data.local.format("%F  %I:%M %p"));
+				print (@"Local time  : %s\n", data.local.format("%F %I:%M %p"));
 				print (@"Temperature : $(data.temperature) C\n");
 				print (@"Dew point   : $(data.dew_point) C\n");
-				print (@"Wind        : $(data.wind_direction) ");
-				if (data.wind_variation[0].length != 0 && data.wind_variation[1].length != 0) {
-					print (@"($(data.wind_variation[0]) - $(data.wind_variation[1]))\n");
+				print (@"Wind        : $(data.wind.direction) ");
+				if (data.wind.has_vary) {
+					print (@"($(data.wind.vary1) - $(data.wind.vary2)");
 				}
-				print (@"Wind Speed  : $(data.wind_speed) kt (%.2f KM/hr)\n", data.wind_speed * 1.852);
+				print ("\nWind Speed  : %.2f kt (%.2f Km/hr)\n", data.wind.speed.get_kt(), data.wind.speed.get_kmph());
 				print (@"Visibility  : ");
 				if (data.visibility > 1000)
 					print ("%.2f KM\n", data.visibility / 1000);
@@ -399,7 +472,7 @@ class SiteInfo : Object {
 	public SiteInfo () {
 		list = new List<List<string>> ();
 		try {
-			var f_input = File.new_for_path ("stations.gz").read();
+			var f_input = File.new_for_path (DATA_DIR + "/stations.gz").read();
 			var conv_input = new ConverterInputStream (f_input, new ZlibDecompressor(ZlibCompressorFormat.GZIP));
 			var line_stream = new DataInputStream (conv_input);
 
@@ -448,15 +521,18 @@ class Metar : Object {
 	}
 
 	public static int main (string[] args) {
-		GLOBAL = new SiteInfo ();
 
 		var config = new Config(args);
 		var site = new WeatherSite(config);
 		var weather = new DecodedData(site.raw_text);
+
+		// initialize GLOBAL just before output, in case option parsing error.
+		GLOBAL = new SiteInfo ();
+
 		//var weather = new DecodedData("RCKH 220330Z 16013G23KT 290V310 3/8SM -SHRA FEW015 BKN035 OVC070 M28/M24 Q1000 TEMPO 1600 SHRA");
 		var output = new Formatter(config, weather);
 		output.output();
-		
+
 		return 0;
 	}
 }
