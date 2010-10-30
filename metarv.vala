@@ -27,7 +27,7 @@ class Config : Object {
 		static const OptionEntry[] opts = {
 			{ "site", 's', 0, OptionArg.STRING, ref site_name, "specify metar station.", "<name>" }, 
 			{ "output", 't', 0, OptionArg.STRING, ref output_type, "output type: [general|raw|format] (default: general).", "<type>" }, 
-			{ "format", 'f', 0, OptionArg.STRING, ref format_output, "customized formatted string. use '--format help' for more detail.", "<string>" }, 
+			{ "format", 'f', 0, OptionArg.STRING, ref format_output, "formatted string. use '--format help' for detail.", "<string>" }, 
 			{ "imperial", 'i', 0, OptionArg.NONE, ref imperial_units, "use imperial units. (only affect the 'general' output type)", null },
 			{ null }
 		};

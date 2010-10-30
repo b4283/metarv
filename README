@@ -14,6 +14,6 @@ Help Options:
 Application Options:
   -s, --site=<name>         specify metar station.
   -t, --output=<type>       output type: [general|raw|format] (default: general).
-  -f, --format=<string>     customized formatted string. use '--format help' for more detail.
-  -i, --imperial            use imperial units (feet, miles, fahrenheit), default is metric.
+  -f, --format=<string>     formatted string. use '--format help' for detail.
+  -i, --imperial            use imperial units. (only affect the 'general' output type)
 
