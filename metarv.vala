@@ -1,13 +1,10 @@
-//using GLib;
-
 /*
 	TODO:
 		1. log facility
 		2. rrd integration
-		3. formatted output
 */
 
-void println (string f) {
+void println (string? f) {
 	print ("%s\n", f);
 }
 
@@ -31,7 +28,7 @@ class Config : Object {
 			{ "site", 's', 0, OptionArg.STRING, ref site_name, "specify metar station.", "<name>" }, 
 			{ "output", 't', 0, OptionArg.STRING, ref output_type, "output type: [general|raw|format] (default: general).", "<type>" }, 
 			{ "format", 'f', 0, OptionArg.STRING, ref format_output, "customized formatted string. use '--format help' for more detail.", "<string>" }, 
-			{ "imperial", 'i', 0, OptionArg.NONE, ref imperial_units, "use imperial units (feet, miles, fahrenheit), default is metric.", null },
+			{ "imperial", 'i', 0, OptionArg.NONE, ref imperial_units, "use imperial units. (only affect the 'general' output type)", null },
 			{ null }
 		};
 	
@@ -68,6 +65,10 @@ class Config : Object {
 		if (/^[a-zA-Z]{4}$/.match(site_name) == false)
 			error("Invalid station name");
 		site_name = site_name.up();
+
+		if (format_output != "") {
+			output_type = "format";
+		}
 	}
 
 	private void write_config_file () {
@@ -104,15 +105,24 @@ class Config : Object {
 
 	private void print_format_detail () {
 		stdout.printf("Available formatting options:\n\n");
-		stdout.printf("  %%s = short station name\n");
-		stdout.printf("  %%S = long station name \n");
-		stdout.printf("  %%l = local time\n");
-		stdout.printf("  %%t = temperature\n");
-		stdout.printf("  %%d = dew point\n");
-		stdout.printf("  %%w = wind speed\n");
-		stdout.printf("  %%D = wind direction\n");
-		stdout.printf("  %%g = wind gust speed\n");
-		stdout.printf("\n");
+		stdout.printf(" Site infomation:\n");
+		stdout.printf("  4-letter name  : %%short_name%%\n");
+		stdout.printf("  Full name      : %%full_name%%\n");
+		stdout.printf("  Country        : %%country%%\n");
+		stdout.printf("  Longtitude     : %%longitude%%\n");
+		stdout.printf("  Latitude       : %%latitude%%\n");
+		stdout.printf("\n Weather infomation:\n");
+		stdout.printf("  Raw metar code : %%raw%%\n");
+		stdout.printf("  Local Time     : %%time_<pattern>_end%% (eg: \"%%time_%%F %%R_end%%\", consult `man strftime`)\n");
+		stdout.printf("  Temperature    : %%temp_[c | f]%%\n");
+		stdout.printf("  Dew point      : %%dew_[c | f]%%\n");
+		stdout.printf("  Wind speed     : %%wind_sp_[mps | mph | kt | kmph]\n");
+		stdout.printf("  Wind gust      : %%wind_gu_[mps | mph | kt | kmph]\n");
+		stdout.printf("  Wind direction : %%wind_dirt%%\n");
+		stdout.printf("  Wind variation : %%wind_vary%%\n");
+		stdout.printf("  Pressure       : %%pres_[hpa | inhg | bar | psi]%%\n");
+		stdout.printf("  Visibility     : %%vis_[imperial | metric]%%\n\n");
+		stdout.printf("You have to quote the entire format string, otherwise the program couldn't parse it.\n");
 		Posix.exit(0);
 	}
 }
@@ -210,8 +220,6 @@ class WeatherSite : Object {
 	}
 }
 
-
-
 class DecodedData : Object {
 
 	public class Wind : Object {
@@ -220,7 +228,12 @@ class DecodedData : Object {
 			private double speed;
 			private bool is_kt;
 
-			public Speed (bool is_kt, double speed) {
+			public Speed () {
+				is_kt = true;
+				speed = 0;
+			}
+
+			public void setnum (bool is_kt, double speed) {
 				this.speed = speed;
 				this.is_kt = is_kt;
 			}
@@ -248,37 +261,24 @@ class DecodedData : Object {
 					return speed*1.852;
 				return speed*3.6;
 			}
-			
-			public double smart (bool imp) {
-				return imp?(this.get_mph()):(this.get_kmph());
-			}
-
-			public string smart_unit (bool imp) {
-				return imp?"mph":"km/h";
-			}
 		}
 
 		public string direction;
 		
 		public Speed speed;
-		public bool has_gust = false;
 		public Speed gust;
 
 		public bool has_vary = false;
 		public string vary1;
 		public string vary2;
 
-		//public Wind () {}
-
-		public void set_wind (bool is_kt, double number, string dir) {
-			// type directly provided by METAR, either KT or MPS
-			this.speed = new Speed (is_kt, number);
-			this.direction = dir;
+		public Wind () {
+			speed = new Speed ();
+			gust = new Speed ();
 		}
-
-		public void set_gust (bool is_kt, double number) {
-			this.gust = new Speed (is_kt, number);
-			this.has_gust = true;
+		
+		public void set_dirt (string dirt) {
+			this.direction = dirt;
 		}
 
 		public void set_vary (string dir1, string dir2) {
@@ -294,7 +294,7 @@ class DecodedData : Object {
 		public static enum Unit {
 			FEET,
 			METER,
-			MILE,
+			MILE
 		}
 
 		private double dist;
@@ -326,36 +326,20 @@ class DecodedData : Object {
 			return dist*0.00062137119;
 		}
 
-		public double human (bool imp) {
-			if (imp == false) {
-				if (dist > 1000)
-					return dist/1000;
-				else if (dist < 1)
-					return dist*100;
-				else
-					return dist;
-			} else {
-				if (dist > 1609)
-					return dist/1609.344;
-				else
-					return dist*3.2808399;
-			}
+		public string metric () {
+			if (dist > 1000)
+				return "%.3g %s".printf(dist/1000, "km");
+			else if (dist < 1)
+				return "%.0g %s".printf(dist*100, "cm");
+			else
+				return "%.0g %s".printf(dist, "m");
 		}
 
-		public string human_unit (bool imp) {
-			if (imp == false) {
-				if (dist > 1000)
-					return "km";
-				else if (dist < 1)
-					return "cm";
-				else
-					return "m";
-			} else {
-				if (dist > 1609)
-					return "miles";
-				else
-					return "feet";
-			}
+		public string imperial () {
+			if (dist > 1609)
+				return "%.3g %s".printf(dist/1609.344, "miles");
+			else
+				return "%.0g %s".printf(dist*3.2808399, "feet");
 		}
 	}
 
@@ -380,14 +364,6 @@ class DecodedData : Object {
 		public double fahrenheit () {
 			return num*1.8+32;
 		}
-
-		public double smart (bool imp) {
-			return imp?this.fahrenheit():num;
-		}
-
-		public string smart_unit (bool imp) {
-			return imp?"F":"C";
-		}
 	}
 
 	public class Pressure : Object {
@@ -397,6 +373,7 @@ class DecodedData : Object {
 		}
 		private double num;
 
+		// store as hPa
 		public Pressure (double num, Unit type) {
 			if (type == Unit.INHG)
 				num *= 33.863886;
@@ -411,15 +388,15 @@ class DecodedData : Object {
 			return num/33.863886;
 		}
 
-		public double smart (bool imp) {
-			return imp?(this.get_inhg()):(this.get_hpa());
+		public double get_bar () {
+			return num/1000;
 		}
 
-		public string smart_unit (bool imp) {
-			return imp?"inHg":"hPa";
+		public double get_psi () {
+			return num/68.947573;
 		}
 	}
-
+	
 	public string raw_code;
 	public string short_name;
 	public Temperature temperature;
@@ -496,8 +473,9 @@ class DecodedData : Object {
 					kt = false;
 				
 				if (gust != -1)
-					wind.set_gust (kt, gust);
-				wind.set_wind (kt, speed, dirt); 
+					wind.gust.setnum (kt, gust);
+				wind.speed.setnum (kt, speed); 
+				wind.set_dirt (dirt);
 
 				flags |= Flags.WIND;
 				parsed = true;
@@ -542,8 +520,7 @@ class DecodedData : Object {
 				double f;
 
 				if (val[0:4] == "M1/4") {
-					// negative means lower than
-					f = 0.25;
+					f = 0.25; // a quarter mile
 				} else {
 					if (val[1] == '/') {
 						double a = val[0].to_string().to_int();
@@ -573,7 +550,7 @@ class DecodedData : Object {
 			}
 
 			// Extra informations
-			if (parsed == false )
+			if (parsed == false)
 				extras += val; 
 		}
 
@@ -636,40 +613,175 @@ class DecodedData : Object {
 
 class Formatter : Object {
 	private DecodedData data;
+	private string last_string;
 
 	public Formatter (DecodedData data) {
 		this.data = data;
+		switch (config.output_type) {
+			case "general":
+				set_predefined (config.imperial_units);
+				parser ();
+				break;
+			case "format":
+				parser ();
+				break;
+			case "raw":
+				last_string = data.raw_code;
+				break;
+		}
+	}
+
+	private void set_predefined (bool imp) {
+		var f = new StringBuilder ();
+		if (imp) {
+			f.append("Location    : %full_name%, %country% (%short_name%)\n");
+			f.append("Local time  : %time_%F %I:%M %p_end%\n");
+			f.append("Temperature : %temp_f%\n");
+			f.append("Dew point   : %dew_f%\n");
+			f.append("Wind        : %wind_dirt%");
+			if (data.wind.has_vary) {
+				f.append(" (%wind_vary%)");
+			}
+			f.append("\n");
+			f.append("Wind Speed  : %wind_sp_kt% (%wind_sp_mph%)\n");
+			f.append("Pressure    : %pres_inhg%\n");
+			f.append("Visibility  : %vis_imperial%");
+//				if (data.extras.length != 0) {
+//					print (@"Extra info  :");
+//					foreach (var val in data.extras) {
+//						if (val != "")
+//							print (@" $val");
+//					}
+//					print ("\n");
+		} else {
+			f.append("Location    : %full_name%, %country% (%short_name%)\n");
+			f.append("Local time  : %time_%F %I:%M %p_end%\n");
+			f.append("Temperature : %temp_c%\n");
+			f.append("Dew point   : %dew_c%\n");
+			f.append("Wind        : %wind_dirt%");
+			if (data.wind.has_vary) {
+				f.append(" (%wind_vary%)");
+			}
+			f.append("\n");
+			f.append("Wind Speed  : %wind_sp_kt% (%wind_sp_mps%)\n");
+			f.append("Pressure    : %pres_hpa%\n");
+			f.append("Visibility  : %vis_metric%");
+		}
+		config.format_output = f.str;
+	}
+
+	private void parser () {
+		string[] array = config.format_output.split("%");
+
+		bool timed = false;
+		for (int i=0; i<array.length; i++) {
+			// parse time using glib's datetime
+			if (timed == false && array[i].length >= 5 && array[i][0:5] == "time_") {
+				string[] temp = { array[i].substring(5) };
+				while(true) {
+					array[i++] = "";
+					if (array[i].length >= 4 && array[i].substring(-4) == "_end") {
+						temp += array[i][0:-4];
+						break;
+					}
+					else
+						temp += array[i];
+				}
+				array[i] = data.local.format(string.joinv("%", temp));
+
+				timed = true;
+			}
+
+			//
+			switch (array[i]) {
+				case "raw":
+					array[i] = data.raw_code;
+					break;
+				case "short_name":
+					array[i] = data.short_name;
+					break;
+				case "full_name":
+					array[i] = GLOBAL[data.short_name].nth_data(3);
+					break;
+				case "country":
+					array[i] = GLOBAL[data.short_name].nth_data(5);
+					break;
+				case "latitude":
+					array[i] = GLOBAL[data.short_name].nth_data(7);
+					break;
+				case "longitude":
+					array[i] = GLOBAL[data.short_name].nth_data(8);
+					break;
+				case "vis_metric":
+					array[i] = data.visibility.metric();
+					break;
+				case "vis_imperial":
+					array[i] = data.visibility.imperial();
+					break;
+				case "temp_c":
+					array[i] = "%.3g C".printf(data.temperature.celsius());
+					break;
+				case "temp_f":
+					array[i] = "%.3g F".printf(data.temperature.fahrenheit());
+					break;
+				case "dew_c":
+					array[i] = "%.3g C".printf(data.dew_point.celsius());
+					break;
+				case "dew_f":
+					array[i] = "%.3g F".printf(data.dew_point.fahrenheit());
+					break;
+				case "wind_sp_mps":
+					array[i] = "%.3g m/s".printf(data.wind.speed.get_mps());
+					break;
+				case "wind_sp_mph":
+					array[i] = "%.3g mph".printf(data.wind.speed.get_mph());
+					break;
+				case "wind_sp_kmph":
+					array[i] = "%.3g km/h".printf(data.wind.speed.get_kmph());
+					break;
+				case "wind_sp_kt":
+					array[i] = "%.3g knot".printf(data.wind.speed.get_kt());
+					break;
+				case "wind_gu_mps":
+					array[i] = "%.3g m/s".printf(data.wind.gust.get_mps());
+					break;
+				case "wind_gu_mph":
+					array[i] = "%.3g mph".printf(data.wind.gust.get_mph());
+					break;
+				case "wind_gu_kmph":
+					array[i] = "%.3g km/h".printf(data.wind.gust.get_kmph());
+					break;
+				case "wind_gu_kt":
+					array[i] = "%.3g knot".printf(data.wind.gust.get_kt());
+					break;
+				case "wind_vary":
+					if (data.wind.has_vary)
+						array[i] = "%s - %s".printf(data.wind.vary1, data.wind.vary2);
+					else
+						array[i] = "n/a";
+					break;
+				case "wind_dirt":
+					array[i] = "%s".printf(data.wind.direction);
+					break;
+				case "pres_hpa":
+					array[i] = "%.5g hPa".printf(data.atmo_pressure.get_hpa());
+					break;
+				case "pres_inhg":
+					array[i] = "%.4g inHg".printf(data.atmo_pressure.get_inhg());
+					break;
+				case "pres_bar":
+					array[i] = "%.4g bar".printf(data.atmo_pressure.get_bar());
+					break;
+				case "pres_psi":
+					array[i] = "%.4g psi".printf(data.atmo_pressure.get_psi());
+					break;
+			}
+		}
+		last_string = string.joinv("", array).compress();
 	}
 
 	public void output () {
-		switch (config.output_type) {
-			case "general":
-				print (@"Location    : %s, %s (%s)\n", GLOBAL[data.short_name].nth_data(3), GLOBAL[data.short_name].nth_data(5), data.short_name);
-				print (@"Local time  : %s\n", data.local.format("%F %I:%M %p"));
-				print ("Temperature : %.1f %s\n", data.temperature.smart(config.imperial_units), data.temperature.smart_unit(config.imperial_units));
-				print ("Dew point   : %.1f %s\n", data.dew_point.smart(config.imperial_units), data.temperature.smart_unit(config.imperial_units));
-				print (@"Wind        : $(data.wind.direction) ");
-				if (data.wind.has_vary) {
-					print (@"($(data.wind.vary1) - $(data.wind.vary2)");
-				}
-				print ("\nWind Speed  : %.2f kt (%.2f %s)\n", data.wind.speed.get_kt(), data.wind.speed.smart(config.imperial_units), data.wind.speed.smart_unit(config.imperial_units));
-				print ("Pressure    : %.1f %s\n", data.atmo_pressure.smart(config.imperial_units), data.atmo_pressure.smart_unit(config.imperial_units));
-				print ("Visibility  : %.2f %s\n", data.visibility.human(config.imperial_units), data.visibility.human_unit(config.imperial_units));
-				if (data.extras.length != 0) {
-					print (@"Extra info  :");
-					foreach (var val in data.extras) {
-						if (val != "")
-							print (@" $val");
-					}
-					print ("\n");
-				}
-				break;
-			case "raw":
-				print (@"$(data.raw_code)\n");
-				break;
-			case "format":
-				break;
-		}
+		print ("%s\n", last_string);
 	}
 
 }
@@ -724,7 +836,7 @@ static SiteInfo GLOBAL;
 // .nth_data(5)  = country;
 // .nth_data(6)  = wmo_region;
 // .nth_data(7)  = latitude;
-// .nth_data(8)  = longtitude;
+// .nth_data(8)  = longitude;
 // .nth_data(9)  = upper_latitude;
 // .nth_data(10) = upper_longtitude;
 // .nth_data(11) = elevation;
@@ -750,7 +862,6 @@ class Metar : Object {
 		// initialize GLOBAL just before output, in case option parsing error.
 		GLOBAL = new SiteInfo ();
 
-		//var weather = new DecodedData("RCKH 220330Z 16013G23KT 290V310 3/8SM -SHRA FEW015 BKN035 OVC070 M28/M24 Q1000 TEMPO 1600 SHRA");
 		var output = new Formatter(weather);
 		output.output();
 
