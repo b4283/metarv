@@ -7,6 +7,10 @@
 		3. formatted output
 */
 
+void println (string f) {
+	print ("%s\n", f);
+}
+
 class Config : Object {
 	//private string config_path = Environment.get_home_dir() + "/.metarvrc";
 	private string config_path = "./metarvrc";
@@ -244,6 +248,14 @@ class DecodedData : Object {
 					return speed*1.852;
 				return speed*3.6;
 			}
+			
+			public double smart (bool imp) {
+				return imp?(this.get_mph()):(this.get_kmph());
+			}
+
+			public string smart_unit (bool imp) {
+				return imp?"mph":"km/h";
+			}
 		}
 
 		public string direction;
@@ -314,36 +326,36 @@ class DecodedData : Object {
 			return dist*0.00062137119;
 		}
 
-		public double metric () {
-			if (dist > 1000)
-				return dist/1000;
-			else if (dist < 1)
-				return dist*100;
-			else
-				return dist;
+		public double human (bool imp) {
+			if (imp == false) {
+				if (dist > 1000)
+					return dist/1000;
+				else if (dist < 1)
+					return dist*100;
+				else
+					return dist;
+			} else {
+				if (dist > 1609)
+					return dist/1609.344;
+				else
+					return dist*3.2808399;
+			}
 		}
 
-		public string metric_unit () {
-			if (dist > 1000)
-				return "km";
-			else if (dist < 1)
-				return "cm";
-			else
-				return "m";
-		}
-
-		public double imperial () {
-			if (dist > 1609)
-				return dist/1609.344;
-			else
-				return dist*3.2808399;
-		}
-
-		public string imperial_unit () {
-			if (dist > 1609)
-				return "miles";
-			else
-				return "feet";
+		public string human_unit (bool imp) {
+			if (imp == false) {
+				if (dist > 1000)
+					return "km";
+				else if (dist < 1)
+					return "cm";
+				else
+					return "m";
+			} else {
+				if (dist > 1609)
+					return "miles";
+				else
+					return "feet";
+			}
 		}
 	}
 
@@ -368,6 +380,14 @@ class DecodedData : Object {
 		public double fahrenheit () {
 			return num*1.8+32;
 		}
+
+		public double smart (bool imp) {
+			return imp?this.fahrenheit():num;
+		}
+
+		public string smart_unit (bool imp) {
+			return imp?"F":"C";
+		}
 	}
 
 	public class Pressure : Object {
@@ -385,6 +405,18 @@ class DecodedData : Object {
 
 		public double get_hpa () {
 			return num;
+		}
+
+		public double get_inhg () {
+			return num/33.863886;
+		}
+
+		public double smart (bool imp) {
+			return imp?(this.get_inhg()):(this.get_hpa());
+		}
+
+		public string smart_unit (bool imp) {
+			return imp?"inHg":"hPa";
 		}
 	}
 
@@ -520,7 +552,6 @@ class DecodedData : Object {
 					} else {
 						f = val[0:-2].to_double();
 					}
-					f *= 1609.344;
 				}
 				visibility = new Distance (f, Distance.Unit.MILE);
 
@@ -536,7 +567,7 @@ class DecodedData : Object {
 			}
 
 			if ((flags & Flags.ATMO_PRES) == 0 && /^A[0-9]{4}$/.match(val)) {
-				atmo_pressure = new Pressure (val.substring(1).to_double(), Pressure.Unit.INHG);
+				atmo_pressure = new Pressure (val.substring(1).to_double()/100, Pressure.Unit.INHG);
 				flags |= Flags.ATMO_PRES;
 				parsed = true;
 			}
@@ -551,9 +582,10 @@ class DecodedData : Object {
 			
 			if (/^CLR$/.match(val)) {
 				sky += "Clear sky.";
+				extras[i] = "";
 			}
 
-			if (/^(VV|FEW|SCT|BKN|OVC){1}[0-9]{3}$/.match(val)) {
+			if (/^((VV|FEW|SCT|BKN|OVC){1}[0-9]{3})|CLR$/.match(val)) {
 				sky += val;
 				extras[i] = "";
 			}
@@ -561,6 +593,43 @@ class DecodedData : Object {
 			if (/^NOSIG$/.match(val)) {
 				extras[i] = "No significant weather change ahead.";
 			}
+		}
+
+		for (int i=0; i<sky.length; i++) {
+			bool matched = false;
+			string val = sky[i];
+			if (matched == false && val[0:2] == "VV") {
+				int t = sky[i].substring(2).to_int()*100;
+				sky[i] = @"Vertical visibility $t ft";
+				matched = true;
+			}
+
+			int t = sky[i].substring(3).to_int()*100;
+			switch(val[0:3]) {
+				case "CLR":
+					sky[i] = "Clear sky - no cloud under 12000 ft";
+					matched = true;
+					break;
+				case "FEW":
+					sky[i] = @"Few clouds at $t ft";
+					matched = true;
+					break;
+				case "BKN":
+					sky[i] = @"Broken clouds at $t ft";
+					matched = true;
+					break;
+				case "SCT":
+					sky[i] = @"Scatter clouds at $t ft";
+					matched = true;
+					break;
+				case "OVC":
+					sky[i] = @"Overcast at $t ft";
+					matched = true;
+					break;
+			}
+			
+			if (matched == false)
+				sky[i] = "";
 		}
 	}
 }
@@ -577,31 +646,20 @@ class Formatter : Object {
 			case "general":
 				print (@"Location    : %s, %s (%s)\n", GLOBAL[data.short_name].nth_data(3), GLOBAL[data.short_name].nth_data(5), data.short_name);
 				print (@"Local time  : %s\n", data.local.format("%F %I:%M %p"));
-				if (config.imperial_units) {
-					print ("Temperature : %.1f F\n", data.temperature.fahrenheit());
-					print ("Dew point   : %.1f F\n", data.dew_point.fahrenheit());
-				} else {
-					print ("Temperature : %.0f C\n", data.temperature.celsius());
-					print ("Dew point   : %.0f C\n", data.dew_point.celsius());
-				}
+				print ("Temperature : %.1f %s\n", data.temperature.smart(config.imperial_units), data.temperature.smart_unit(config.imperial_units));
+				print ("Dew point   : %.1f %s\n", data.dew_point.smart(config.imperial_units), data.temperature.smart_unit(config.imperial_units));
 				print (@"Wind        : $(data.wind.direction) ");
 				if (data.wind.has_vary) {
 					print (@"($(data.wind.vary1) - $(data.wind.vary2)");
 				}
-				print ("\nWind Speed  : %.2f kt ", data.wind.speed.get_kt());
-				if (config.imperial_units)
-					print ("(%.2f mph)\n", data.wind.speed.get_mph());
-				else
-					print ("(%.2f km/hr)\n", data.wind.speed.get_kmph());
-				print (@"Visibility  : ");
-				if (config.imperial_units)
-					print ("%.2f %s\n", data.visibility.imperial(), data.visibility.imperial_unit());
-				else
-					print ("%.2f %s\n", data.visibility.metric(), data.visibility.metric_unit());
+				print ("\nWind Speed  : %.2f kt (%.2f %s)\n", data.wind.speed.get_kt(), data.wind.speed.smart(config.imperial_units), data.wind.speed.smart_unit(config.imperial_units));
+				print ("Pressure    : %.1f %s\n", data.atmo_pressure.smart(config.imperial_units), data.atmo_pressure.smart_unit(config.imperial_units));
+				print ("Visibility  : %.2f %s\n", data.visibility.human(config.imperial_units), data.visibility.human_unit(config.imperial_units));
 				if (data.extras.length != 0) {
 					print (@"Extra info  :");
 					foreach (var val in data.extras) {
-						print (@" $val");
+						if (val != "")
+							print (@" $val");
 					}
 					print ("\n");
 				}
