@@ -134,6 +134,7 @@ class Config : Object {
 		stdout.printf("  Wind variation : %%wind_vary%%\n");
 		stdout.printf("  Pressure       : %%pres_[hpa | inhg | bar | psi]%%\n");
 		stdout.printf("  Visibility     : %%vis_[imperial | metric]%%\n\n");
+
 		stdout.printf("The format string has to be quoted, otherwise the program won't parse.\n\n");
 		Posix.exit(0);
 	}
@@ -144,13 +145,57 @@ errordomain CacheError {
 	NO_SITE
 }
 
-class WeatherSite : Object {
+class Site : Object {
+
+	public class SiteInfo : Object {
+
+		// siteinfo is a string array containing informations about the station itself
+		// lookup through config.site_name, where its data structure looks like follows:
+		// [0]  = icao_name;
+		// [1]  = block_number;
+		// [2]  = station_number;
+		// [3]  = good_name;
+		// [4]  = us_state;
+		// [5]  = country;
+		// [6]  = wmo_region;
+		// [7]  = latitude;
+		// [8]  = longitude;
+		// [9]  = upper_latitude;
+		// [10] = upper_longtitude;
+		// [11] = elevation;
+		// [12] = upper_elevation;
+		// [13] = rbsn;
+		private string[] list = {};
+
+		public string? get (int index) {
+			return list[index];
+		}
+
+		public SiteInfo () {
+			try {
+				var f_input = File.new_for_path (DATA_DIR + "/stations.gz").read();
+				var conv_input = new ConverterInputStream (f_input, new ZlibDecompressor(ZlibCompressorFormat.GZIP));
+				var line_stream = new DataInputStream (conv_input);
+
+				for (var line = line_stream.read_line(null); line != null; line = line_stream.read_line(null)) {
+					if (line[0:4] == config.site_name) {
+						list = line.split(";");
+						break;
+					}
+				}
+			} catch (Error e) {
+				stderr.printf("(warning) Unable to read '%s', this file should have been shipped with metarv.\n", "stations.gz");
+			}
+		}
+	}
+
+	public SiteInfo info;
 
 	private InetAddress server_inet;
 
 	public string raw_text = "";
 
-	public WeatherSite () {
+	public Site () {
 		var resolver = Resolver.get_default();
 
 		bool fetch_remote = false;
@@ -181,12 +226,26 @@ class WeatherSite : Object {
 		} catch (Error e) {
 			Metar.abnormal_exit(e, "Network failure.\n");
 		}
+
+		info = new SiteInfo ();
 	}
 	
 	private bool is_outdated () {
-		var f = new DecodedData(raw_text);
+		string[] temp = raw_text.split(" ");
+		DateTime local = new DateTime.now_local ();
+
+		foreach (var str in temp) {
+			if (/^[0-9]+Z$/.match(str)) {
+				DateTime utc;
+				var now = new DateTime.now_utc ();
+				utc = new DateTime.utc (now.get_year(), now.get_month(), str[0:2].to_int(), str[2:4].to_int(), str[4:6].to_int(), 0);
+				local = utc.to_timezone(new TimeZone.local());
+				break;
+			}
+		}
+
 		var d = new DateTime.now_local();
-		var diff = d.difference(f.local);
+		var diff = d.difference(local);
 
 		// 35 minutes * 60 * 10^6 = 2100000000 -- default timeout time: 35 minutes
 		if (diff < 2100000000)
@@ -227,7 +286,7 @@ class WeatherSite : Object {
 				} while (mesg != "");
 				mesg = input.read_line(null, null);
 				do {
-					if (mesg[0:4] == config.site_name.up()) {
+					if (mesg[0:4] == config.site_name) {
 						raw_text = mesg.strip();
 					}
 					mesg = input.read_line(null, null);
@@ -441,6 +500,7 @@ class DecodedData : Object {
 	public string[] extras = {};
 	public string[] phenomena = {};
 	public string[] sky = {};
+	public string[] undecoded = {};
 
 	// Use of a enumeration to keep decoded fields
 	private enum Flags {
@@ -453,7 +513,8 @@ class DecodedData : Object {
 		TEMPERATURE = 1 << 6
 	}
 
-	public DecodedData (string raw) {
+	public DecodedData () {
+		string raw = site.raw_text;
 
 		wind = new Wind ();
 
@@ -582,27 +643,44 @@ class DecodedData : Object {
 				parsed = true;
 			}
 
+			// Sky condition
+			if (/^((VV|FEW|SCT|BKN|OVC){1}[0-9]{3})|CLR$/.match(val)) {
+				sky += val;
+				parsed = true;
+			}
+
+			// Weather phenomena
+			//RA: liquid precipitation that does not freeze;
+			//SN: frozen precipitation other than hail;
+			//UP: precipitation of unknown type;
+			//intensity prefixed to precipitation: light (-), moderate (no sign), heavy (+);
+
+			//FG: fog;
+			//FZFG: freezing fog (temperature below 0°C);
+			//BR: mist;
+			//HZ: haze;
+			//SQ: squall; maximum of three groups reported;
+
+			//augmented by observer:
+			//FC (funnel cloud/tornado/waterspout);
+			//TS (thunderstorm);
+			//GR (hail);
+			//GS (small hail; <1/4 inch);
+			//FZRA (intensity; freezing rain);
+			//VA (volcanic ash). 
+
+			if (/^[+-]?((TS|SH)?RA)|HZ|BR$/.match(val)) {
+				phenomena += val;
+				parsed = true;
+			}
+
 			// Extra informations
 			if (parsed == false)
 				extras += val; 
 		}
 
-		for (int i=0; i<extras.length; i++) {
-			string val = extras[i];
-			
-			if (/^CLR$/.match(val)) {
-				sky += "Clear sky.";
-				extras[i] = "";
-			}
-
-			if (/^((VV|FEW|SCT|BKN|OVC){1}[0-9]{3})|CLR$/.match(val)) {
-				sky += val;
-				extras[i] = "";
-			}
-			
-			if (/^NOSIG$/.match(val)) {
-				extras[i] = "No significant weather change ahead.";
-			}
+		for (int i=0; i<phenomena.length; i++) {
+			println (phenomena[i]);
 		}
 
 		for (int i=0; i<sky.length; i++) {
@@ -629,7 +707,7 @@ class DecodedData : Object {
 					matched = true;
 					break;
 				case "SCT":
-					sky[i] = @"Scatter clouds at $t ft";
+					sky[i] = @"Scattered clouds at $t ft";
 					matched = true;
 					break;
 				case "OVC":
@@ -638,8 +716,30 @@ class DecodedData : Object {
 					break;
 			}
 			
-			if (matched == false)
+			// erase unmatched entries
+			if (matched == false) {
+				undecoded += sky[i];
 				sky[i] = "";
+			}
+		}
+
+		for (int i=0; i<extras.length; i++) {
+			bool matched = false;
+			string val = extras[i];
+			
+			if (/^NOSIG$/.match(val)) {
+				extras[i] = "No significant weather change ahead.";
+				matched = true;
+			}
+			
+			// erase unidentified entries
+			if (matched == false)
+				undecoded += extras[i];
+				extras[i] = "";
+		}
+
+		for (int i=0; i<undecoded.length; i++) {
+			println(undecoded[i]);
 		}
 	}
 }
@@ -679,13 +779,6 @@ class Formatter : Object {
 			f.append("Wind Speed  : %wind_sp_kt% (%wind_sp_mph%)\n");
 			f.append("Pressure    : %pres_inhg%\n");
 			f.append("Visibility  : %vis_imperial%");
-//				if (data.extras.length != 0) {
-//					print (@"Extra info  :");
-//					foreach (var val in data.extras) {
-//						if (val != "")
-//							print (@" $val");
-//					}
-//					print ("\n");
 		} else {
 			f.append("Location    : %full_name%, %country% (%short_name%)\n");
 			f.append("Local time  : %time_%F %I:%M %p_end%\n");
@@ -734,16 +827,16 @@ class Formatter : Object {
 					array[i] = data.short_name;
 					break;
 				case "full_name":
-					array[i] = GLOBAL[data.short_name].nth_data(3);
+					array[i] = site.info[3];
 					break;
 				case "country":
-					array[i] = GLOBAL[data.short_name].nth_data(5);
+					array[i] = site.info[5];
 					break;
 				case "latitude":
-					array[i] = GLOBAL[data.short_name].nth_data(7);
+					array[i] = site.info[7];
 					break;
 				case "longitude":
-					array[i] = GLOBAL[data.short_name].nth_data(8);
+					array[i] = site.info[8];
 					break;
 				case "vis_metric":
 					array[i] = data.visibility.metric();
@@ -808,6 +901,8 @@ class Formatter : Object {
 				case "pres_psi":
 					array[i] = "%.4g psi".printf(data.atmo_pressure.get_psi());
 					break;
+				case "weather_cond":
+					break;
 			}
 		}
 		last_string = string.joinv("", array).compress();
@@ -819,64 +914,8 @@ class Formatter : Object {
 
 }
 
-class SiteInfo : Object {
-	private List<List<string>> list;
-
-	public unowned List<string>? get (string s1) {
-		var s = s1.up();
-		if (/^[A-Z]{4}$/.match(s) == false)
-			return null;
-		unowned List<List<string>> iter = list.first();
-		while (iter.data.nth_data(2) != s) {
-			iter = iter.next;
-		}
-		return iter.data; 
-	}
-
-	public SiteInfo () {
-		list = new List<List<string>> ();
-		try {
-			var f_input = File.new_for_path (DATA_DIR + "/stations.gz").read();
-			var conv_input = new ConverterInputStream (f_input, new ZlibDecompressor(ZlibCompressorFormat.GZIP));
-			var line_stream = new DataInputStream (conv_input);
-
-			for (var line = line_stream.read_line(null); line != null; line = line_stream.read_line(null)) {
-				var temp = new List<string> ();
-
-				var array = line.split(";");
-				for (int i=0; i<array.length; i++) {
-					temp.prepend(array[i]);
-				}
-				temp.reverse();
-				list.prepend((owned) temp);
-			}
-			list.reverse();
-		} catch (Error e) {
-			stderr.printf("(warning) Unable to read '%s', this file should have been shipped with metarv.\n", "stations.gz");
-		}
-	}
-}
-
-static SiteInfo GLOBAL;
-
-// GLOBAL is a singleton-like class, which is initialized only once during main()
-// query GLOBAL[<site name>] to get a List where its data structure looks like follows:
-// .nth_data(0)  = block_number;
-// .nth_data(1)  = station_number;
-// .nth_data(2)  = icao_name;
-// .nth_data(3)  = good_name;
-// .nth_data(4)  = us_state;
-// .nth_data(5)  = country;
-// .nth_data(6)  = wmo_region;
-// .nth_data(7)  = latitude;
-// .nth_data(8)  = longitude;
-// .nth_data(9)  = upper_latitude;
-// .nth_data(10) = upper_longtitude;
-// .nth_data(11) = elevation;
-// .nth_data(12) = upper_elevation;
-// .nth_data(13) = rbsn;
-
 static Config config;
+static Site site;
 
 class Metar : Object {
 
@@ -889,12 +928,8 @@ class Metar : Object {
 	public static int main (string[] args) {
 
 		config = new Config(args);
-		var site = new WeatherSite();
-		var weather = new DecodedData(site.raw_text);
-
-		// initialize GLOBAL just before output, in case option parsing error.
-		GLOBAL = new SiteInfo ();
-
+		site = new Site();
+		var weather = new DecodedData();
 		var output = new Formatter(weather);
 		output.output();
 
