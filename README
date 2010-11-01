@@ -19,3 +19,30 @@ Application Options:
   -c, --cache               only use local cache, do not connect
   -u, --update              only update cache, do nothing else
 
+====
+
+Available formatting options:
+
+ Site infomation:
+  4-letter name  : %short_name%
+  Full name      : %full_name%
+  Country        : %country%
+  Longtitude     : %longitude%
+  Latitude       : %latitude%
+
+ Weather infomation:
+  Raw metar code : %raw%
+  Local Time     : %time_<pattern>_end% (eg: "%time_%F %R_end%", consult `man strftime`)
+  Temperature    : %temp_[c | f]%
+  Dew point      : %dew_[c | f]%
+  Wind speed     : %wind_sp_[mps | mph | kt | kmph]
+  Wind gust      : %wind_gu_[mps | mph | kt | kmph]
+  Wind direction : %wind_dirt%
+  Wind variation : %wind_vary%
+  Pressure       : %pres_[hpa | inhg | bar | psi]%
+  Visibility     : %vis_[imperial | metric]%
+  Phenomena      : %phenomena% (rain, snow, etc)
+  Sky condition  : %sky_cond% (what cloud at what feet, etc)
+
+Format string has to be quoted, otherwise the program won't parse.
+
