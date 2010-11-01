@@ -174,6 +174,7 @@ class Site : Object {
 		}
 
 		public SiteInfo () {
+			bool found = false;
 			string stat_file = DATA_DIR + "/stations.gz";
 			if (File.new_for_path(stat_file).query_exists()) {
 				try {
@@ -183,6 +184,7 @@ class Site : Object {
 
 					for (var line = line_stream.read_line(null); line != null; line = line_stream.read_line(null)) {
 						if (line[0:4] == config.site_name) {
+							found = true;
 							list = line.split(";");
 							break;
 						}
@@ -192,6 +194,9 @@ class Site : Object {
 				}
 			} else {
 				stderr.printf("Unable to read '%s', this file should have been shipped with metarv.\n", stat_file);
+			}
+
+			if (!found) {
 				for (int i=0; i<14; i++) {
 					list += "n/a";
 				}
