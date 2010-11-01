@@ -640,8 +640,9 @@ class DecodedData : Object {
 
 			// Atmo Pressure
 			// Qxxxx -> hPa
-			if (!parsed && (flags & Flags.ATMO_PRES) == 0 && /^Q[0-9]{4}$/.match(val)) {
-				atmo_pressure = new Pressure (val.substring(1).to_double(), Pressure.Unit.HPA);
+			// some sites submit data like Qxxxx/Axxxx, we take Qxxxx only
+			if (!parsed && (flags & Flags.ATMO_PRES) == 0 && /^Q[0-9]{4}(\/A[0-9]{4})?\/?$/.match(val)) {
+				atmo_pressure = new Pressure (val[1:5].to_double(), Pressure.Unit.HPA);
 				flags |= Flags.ATMO_PRES;
 				parsed = true;
 			}
