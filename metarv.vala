@@ -1,7 +1,8 @@
 /*
 	TODO:
-		1. log facility
-		2. rrd integration
+		1. local metar repo
+		2. log facility
+		3. rrd integration
 */
 
 void println (string? f) {
@@ -9,8 +10,7 @@ void println (string? f) {
 }
 
 class Config : Object {
-	//private string config_path = Environment.get_home_dir() + "/.metarvrc";
-	private string config_path = "./metarvrc";
+	private string config_path = Environment.get_home_dir() + "/.metarvrc";
 	
 	public static string cache_file = "/tmp/metarv.cache";
 
@@ -174,19 +174,27 @@ class Site : Object {
 		}
 
 		public SiteInfo () {
-			try {
-				var f_input = File.new_for_path (DATA_DIR + "/stations.gz").read();
-				var conv_input = new ConverterInputStream (f_input, new ZlibDecompressor(ZlibCompressorFormat.GZIP));
-				var line_stream = new DataInputStream (conv_input);
+			string stat_file = DATA_DIR + "/stations.gz";
+			if (File.new_for_path(stat_file).query_exists()) {
+				try {
+					var f_input = File.new_for_path (stat_file).read();
+					var conv_input = new ConverterInputStream (f_input, new ZlibDecompressor(ZlibCompressorFormat.GZIP));
+					var line_stream = new DataInputStream (conv_input);
 
-				for (var line = line_stream.read_line(null); line != null; line = line_stream.read_line(null)) {
-					if (line[0:4] == config.site_name) {
-						list = line.split(";");
-						break;
+					for (var line = line_stream.read_line(null); line != null; line = line_stream.read_line(null)) {
+						if (line[0:4] == config.site_name) {
+							list = line.split(";");
+							break;
+						}
 					}
+				} catch (Error e) {
+					Metar.abnormal_exit(e);
 				}
-			} catch (Error e) {
-				stderr.printf("(warning) Unable to read '%s', this file should have been shipped with metarv.\n", "stations.gz");
+			} else {
+				stderr.printf("Unable to read '%s', this file should have been shipped with metarv.\n", stat_file);
+				for (int i=0; i<14; i++) {
+					list += "n/a";
+				}
 			}
 		}
 	}

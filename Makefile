@@ -1,6 +1,5 @@
 PREFIX = /usr
-DATA_DIR = .
-#$(PREFIX)/share/metarv
+DATA_DIR = $(PREFIX)/share/metarv
 
 DESTDIR =
 
