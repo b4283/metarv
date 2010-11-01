@@ -27,9 +27,9 @@ class Config : Object {
 
 	class CmdOpt : Object {
 		static const OptionEntry[] opts = {
-			{ "site", 's', 0, OptionArg.STRING, ref site_name, "specify metar station.", "<name>" }, 
+			{ "site", 's', 0, OptionArg.STRING, ref site_name, "specify metar station.", "name" }, 
 			{ "output", 't', 0, OptionArg.STRING, ref output_type, "output type: [general|raw|format] (default: general).", "type" }, 
-			{ "format", 'f', 0, OptionArg.STRING, ref format_output, "formatted string. use '--format help' for detail.", "<string>" }, 
+			{ "format", 'f', 0, OptionArg.STRING, ref format_output, "formatted string. use '--format help' for detail.", "string" }, 
 			{ "imperial", 'i', 0, OptionArg.NONE, ref imperial_units, "use imperial units. (only affect the 'general' output type)", null },
 			{ "cache", 'c', 0, OptionArg.NONE, ref cache_only, "only use local cache, do not connect", null },
 			{ "update", 'u', 0, OptionArg.NONE, ref update_only, "only update cache, do nothing else", null },
