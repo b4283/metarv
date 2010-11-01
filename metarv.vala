@@ -23,6 +23,7 @@ class Config : Object {
 	public static string output_type		= "general";
 	public static bool imperial_units	= false;
 	public static bool cache_only			= false;
+	public static bool cmd_cache_only	= false;
 	public static bool update_only		= false;
 
 	class CmdOpt : Object {
@@ -31,7 +32,7 @@ class Config : Object {
 			{ "output", 't', 0, OptionArg.STRING, ref output_type, "output type: [general|raw|format] (default: general).", "type" }, 
 			{ "format", 'f', 0, OptionArg.STRING, ref format_output, "formatted string. use '--format help' for detail.", "string" }, 
 			{ "imperial", 'i', 0, OptionArg.NONE, ref imperial_units, "use imperial units. (only affect the 'general' output type)", null },
-			{ "cache", 'c', 0, OptionArg.NONE, ref cache_only, "only use local cache, do not connect", null },
+			{ "cache", 'c', 0, OptionArg.NONE, ref cmd_cache_only, "only use local cache, do not connect", null },
 			{ "update", 'u', 0, OptionArg.NONE, ref update_only, "only update cache, do nothing else", null },
 			{ null }
 		};
@@ -43,7 +44,7 @@ class Config : Object {
 				k.add_main_entries(opts, null);
 				k.parse(ref args);
 			} catch (OptionError e) {
-				Metar.abnormal_exit(e, @"Run '$(args[0]) --help' to see a full list of available command line options.\n");
+				Metar.abnormal_exit(e, @"Run '$(args[0]) --help' to see a full list of available command line options.");
 			}
 		}
 	}
@@ -78,8 +79,11 @@ class Config : Object {
 			output_type = "format";
 		}
 
-		if (cache_only && update_only)
+		if (cmd_cache_only && update_only)
 			throw new OptionError.BAD_VALUE("-c and -u are contradictory options");
+
+		// if not contradictory
+		cache_only = cmd_cache_only;
 	}
 
 	private void write_config_file () {
@@ -95,7 +99,7 @@ class Config : Object {
 		try {
 			FileUtils.set_contents(config_path, "# Automatically generated, only change if you know what you are doing.\n# If something goes wrong, let the program regenerate one for you.\n" + c.to_data());
 		} catch (Error e) {
-			Metar.abnormal_exit(e, "Failed to create a new configuration file.\n");
+			Metar.abnormal_exit(e, "Failed to create a new configuration file.");
 		}
 	}
 
@@ -111,7 +115,7 @@ class Config : Object {
 			imperial_units		= c.get_boolean("service", "imperial_units");
 			cache_only			= c.get_boolean("service", "cache_only");
 		} catch (Error e) {
-			Metar.abnormal_exit(e, "Configuration file parse error, try deleting it.\n");
+			Metar.abnormal_exit(e, "Configuration file parse error, try deleting it.");
 		}
 	}
 
@@ -218,7 +222,7 @@ class Site : Object {
 				get_cache ();
 			} catch (Error e) {
 				if (config.cache_only)
-					Metar.abnormal_exit(e, "Cache file error\n");
+					Metar.abnormal_exit(e, "Cache file error.");
 				else
 					fetch_remote = true;
 			}
@@ -237,7 +241,7 @@ class Site : Object {
 					Posix.exit(0);
 			}
 		} catch (Error e) {
-			Metar.abnormal_exit(e, "Network failure.\n");
+			Metar.abnormal_exit(e, "Network failure.");
 		}
 
 		info = new SiteInfo ();
@@ -1009,7 +1013,7 @@ class Metar : Object {
 
 	public static void abnormal_exit(Error e, string str = "") {
 		stderr.printf("Error: %s.\n", e.message);
-		stderr.printf(str);
+		stderr.printf("%s\n", str);
 		Posix.exit(1);
 	}
 
