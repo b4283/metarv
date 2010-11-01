@@ -133,9 +133,11 @@ class Config : Object {
 		stdout.printf("  Wind direction : %%wind_dirt%%\n");
 		stdout.printf("  Wind variation : %%wind_vary%%\n");
 		stdout.printf("  Pressure       : %%pres_[hpa | inhg | bar | psi]%%\n");
-		stdout.printf("  Visibility     : %%vis_[imperial | metric]%%\n\n");
+		stdout.printf("  Visibility     : %%vis_[imperial | metric]%%\n");
+		stdout.printf("  Phenomena      : %%phenomena%% (rain, snow, etc)\n");
+		stdout.printf("  Sky condition  : %%sky_cond%% (what cloud at what feet, etc)\n\n");
 
-		stdout.printf("The format string has to be quoted, otherwise the program won't parse.\n\n");
+		stdout.printf("Format string has to be quoted, otherwise the program won't parse.\n\n");
 		Posix.exit(0);
 	}
 }
@@ -190,9 +192,7 @@ class Site : Object {
 	}
 
 	public SiteInfo info;
-
 	private InetAddress server_inet;
-
 	public string raw_text = "";
 
 	public Site () {
@@ -532,7 +532,7 @@ class DecodedData : Object {
 				continue;
 			}
 
-			if ((flags & Flags.NAME) == 0 && /^[A-Z]{4}$/.match(val)) {
+			if (!parsed && (flags & Flags.NAME) == 0 && /^[A-Z]{4}$/.match(val)) {
 				short_name = val;
 
 				flags |= Flags.NAME;
@@ -540,7 +540,7 @@ class DecodedData : Object {
 			}
 			
 			// Time 
-			if ((flags & Flags.TIME) == 0 && /^[0-9]+Z$/.match(val)) {
+			if (!parsed && (flags & Flags.TIME) == 0 && /^[0-9]+Z$/.match(val)) {
 				DateTime utc;
 				var now = new DateTime.now_utc ();
 				utc = new DateTime.utc (now.get_year(), now.get_month(), val[0:2].to_int(), val[2:4].to_int(), val[4:6].to_int(), 0);
@@ -551,7 +551,7 @@ class DecodedData : Object {
 			}
 			
 			// Wind OOXX
-			if ((flags & Flags.WIND) == 0 && /^(VRB)?[0-9G]+(MPS|KT)$/.match(val)) {
+			if (!parsed && (flags & Flags.WIND) == 0 && /^(VRB|\/\/\/|[0-9]{3})[0-9]{2}(G[0-9]{2})?(MPS|KT)$/.match(val)) {
 				string dirt = val[0:3];
 				double speed = val[3:5].to_int();
 				double gust = -1;
@@ -576,7 +576,7 @@ class DecodedData : Object {
 			}
 
 			// Temperature / dew point
-			if ((flags & Flags.TEMPERATURE) == 0 && /^M?[0-9]+\/M?[0-9]+$/.match(val)) {
+			if (!parsed && (flags & Flags.TEMPERATURE) == 0 && /^M?[0-9]+\/M?[0-9]+$/.match(val)) {
 				string[] temp = val.split("/");
 				double a, b;
 				a = temp[0].substring(-2).to_double();
@@ -594,7 +594,7 @@ class DecodedData : Object {
 			}
 			
 			// Wind Variation
-			if ((flags & Flags.WIND_VARY) == 0 && /^[0-9]{3}V[0-9]{3}$/.match(val)) {
+			if (!parsed && (flags & Flags.WIND_VARY) == 0 && /^[0-9]{3}V[0-9]{3}$/.match(val)) {
 				string[] temp = val.split("V");
 				wind.set_vary (temp[0], temp[1]);
 
@@ -603,17 +603,17 @@ class DecodedData : Object {
 			}
 
 			// Visibility
-			if ((flags & Flags.VISIBILITY) == 0 && /^[0-9]{4}$/.match(val)) {
+			if (!parsed && (flags & Flags.VISIBILITY) == 0 && /^[0-9]{4}$/.match(val)) {
 				visibility = new Distance (val.to_double(), Distance.Unit.METER);
 
 				flags |= Flags.VISIBILITY;
 				parsed = true;
 			}
 
-			if ((flags & Flags.VISIBILITY) == 0 && /^(M?[0-9]\/)?[0-9]+SM$/.match(val)) {
+			if (!parsed && (flags & Flags.VISIBILITY) == 0 && /^((M?[0-9]\/[0-9])|[0-9]+)SM$/.match(val)) {
 				double f;
 
-				if (val[0:4] == "M1/4") {
+				if (val.length > 4 && val[0:4] == "M1/4") {
 					f = 0.25; // a quarter mile
 				} else {
 					if (val[1] == '/') {
@@ -631,20 +631,21 @@ class DecodedData : Object {
 			}
 
 			// Atmo Pressure
-			if ((flags & Flags.ATMO_PRES) == 0 && /^Q[0-9]{4}$/.match(val)) {
+			// Qxxxx -> hPa
+			if (!parsed && (flags & Flags.ATMO_PRES) == 0 && /^Q[0-9]{4}$/.match(val)) {
 				atmo_pressure = new Pressure (val.substring(1).to_double(), Pressure.Unit.HPA);
 				flags |= Flags.ATMO_PRES;
 				parsed = true;
 			}
-
-			if ((flags & Flags.ATMO_PRES) == 0 && /^A[0-9]{4}$/.match(val)) {
+			// Axxxx -> inHg
+			if (!parsed && (flags & Flags.ATMO_PRES) == 0 && /^A[0-9]{4}$/.match(val)) {
 				atmo_pressure = new Pressure (val.substring(1).to_double()/100, Pressure.Unit.INHG);
 				flags |= Flags.ATMO_PRES;
 				parsed = true;
 			}
 
 			// Sky condition
-			if (/^((VV|FEW|SCT|BKN|OVC){1}[0-9]{3})|CLR$/.match(val)) {
+			if (!parsed && /^((VV|FEW|SCT|BKN|OVC){1}[0-9]{3})|CLR$/.match(val)) {
 				sky += val;
 				parsed = true;
 			}
@@ -668,8 +669,7 @@ class DecodedData : Object {
 			//GS (small hail; <1/4 inch);
 			//FZRA (intensity; freezing rain);
 			//VA (volcanic ash). 
-
-			if (/^[+-]?((TS|SH)?RA)|HZ|BR$/.match(val)) {
+			if (!parsed && /^(RA|SN|UP|FG|BR|HZ|SQ|FC|TS|GR|GS|VA)$/.match(val.substring(-2))) {
 				phenomena += val;
 				parsed = true;
 			}
@@ -679,10 +679,73 @@ class DecodedData : Object {
 				extras += val; 
 		}
 
+		// Parse weather phenomena array
 		for (int i=0; i<phenomena.length; i++) {
-			println (phenomena[i]);
+			string old = phenomena[i];
+			string[] val = {};
+
+			int pos = 0;
+			switch (old[pos:1]) {
+				case "-":
+					val += "light";
+					pos++;
+					break;
+				case "+":
+					val += "heavy";
+					pos++;
+					break;
+			}
+			
+			while (pos != old.length) {
+				switch (old[pos:pos+2]) {
+					case "RA":
+						val += "rain";
+						break;
+					case "SN":
+						val += "snow";
+						break;
+					case "UP":
+						val += "unknown-type precipitation";
+						break;
+					case "FG":
+						val += "fog";
+						break;
+					case "FZ":
+						val += "freezing";
+						break;
+					case "BR":
+						val += "mist";
+						break;
+					case "HZ":
+						val += "haze";
+						break;
+					case "SQ":
+						val += "squall";
+						break;
+					case "FC":
+						val += "funnel cloud/tornado/waterspout";
+						break;
+					case "TS":
+						val += "thunderstorm";
+						break;
+					case "GR":
+						val += "hail";
+						break;
+					case "GS":
+						val += "small hail";
+						break;
+					case "VA":
+						val += "volcanic ash";
+						break;
+				}
+				pos += 2;
+			}
+
+			val[0] = "%s%s".printf(val[0][0:1].up(), val[0].substring(1));
+			phenomena[i] = string.joinv(" ", val);
 		}
 
+		// Parse sky condition array
 		for (int i=0; i<sky.length; i++) {
 			bool matched = false;
 			string val = sky[i];
@@ -737,10 +800,6 @@ class DecodedData : Object {
 				undecoded += extras[i];
 				extras[i] = "";
 		}
-
-		for (int i=0; i<undecoded.length; i++) {
-			println(undecoded[i]);
-		}
 	}
 }
 
@@ -778,7 +837,9 @@ class Formatter : Object {
 			f.append("\n");
 			f.append("Wind Speed  : %wind_sp_kt% (%wind_sp_mph%)\n");
 			f.append("Pressure    : %pres_inhg%\n");
-			f.append("Visibility  : %vis_imperial%");
+			f.append("Visibility  : %vis_imperial%\n");
+			f.append("Phenomena   : %phenomena%\n");
+			f.append("Sky Cond    : %sky_cond%");
 		} else {
 			f.append("Location    : %full_name%, %country% (%short_name%)\n");
 			f.append("Local time  : %time_%F %I:%M %p_end%\n");
@@ -791,7 +852,9 @@ class Formatter : Object {
 			f.append("\n");
 			f.append("Wind Speed  : %wind_sp_kt% (%wind_sp_mps%)\n");
 			f.append("Pressure    : %pres_hpa%\n");
-			f.append("Visibility  : %vis_metric%");
+			f.append("Visibility  : %vis_metric%\n");
+			f.append("Phenomena   : %phenomena%\n");
+			f.append("Sky Cond    : %sky_cond%");
 		}
 		config.format_output = f.str;
 	}
@@ -901,7 +964,18 @@ class Formatter : Object {
 				case "pres_psi":
 					array[i] = "%.4g psi".printf(data.atmo_pressure.get_psi());
 					break;
-				case "weather_cond":
+				case "sky_cond":
+					if (data.sky.length == 0)
+						data.sky += "n/a";
+					array[i] = string.joinv(", ", data.sky);
+					break;
+				case "phenomena":
+					if (data.phenomena.length == 0)
+						data.phenomena += "n/a";
+					array[i] = string.joinv(", ", data.phenomena);
+					break;
+				case "undecoded":
+					array[i] = string.joinv(", ", data.undecoded);
 					break;
 			}
 		}

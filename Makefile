@@ -16,6 +16,14 @@ metarv: metarv.vala stations.gz
 	echo "#define DATA_DIR \"$(DATA_DIR)\"" > config.h
 	@$(VALAC) $(VALAC_OPTS) $(PKGS) $(SRC)
 
+debug: metarv.vala stations.gz
+	echo "#define DATA_DIR \"$(DATA_DIR)\"" > config.h
+	@$(VALAC) $(VALAC_OPTS) -g $(PKGS) $(SRC)
+
+cfile: metarv.vala stations.gz
+	echo "#define DATA_DIR \"$(DATA_DIR)\"" > config.h
+	@$(VALAC) $(VALAC_OPTS) -C $(PKGS) $(SRC)
+
 clean:
 	rm metarv
 
