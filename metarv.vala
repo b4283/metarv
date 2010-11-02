@@ -71,7 +71,7 @@ class Config : Object {
 	}
 
 	private void sanity_check () throws Error {
-		if (/^[a-zA-Z]{4}$/.match(site_name) == false)
+		if (/^[a-zA-Z0-9]{4}$/.match(site_name) == false)
 			throw new OptionError.BAD_VALUE("Invalid station name");
 		site_name = site_name.up();
 
