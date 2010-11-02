@@ -83,7 +83,7 @@ class Config : Object {
 			throw new OptionError.BAD_VALUE("-c and -u are contradictory options");
 
 		// if not contradictory
-		cache_only = cmd_cache_only;
+		cache_only = cache_only || cmd_cache_only;
 	}
 
 	private void write_config_file () {
