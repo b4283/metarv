@@ -290,6 +290,7 @@ class Site : Object {
 	private void get_remote () throws IOError {
 		try {
 			var client = new SocketClient();
+			client.set_timeout(10);
 			var conn = client.connect (new InetSocketAddress (server_inet, 80), null);
 			var mesg = @"GET $(config.uri_path_metar)$(config.site_name).TXT HTTP/1.1\r\nHost: $(config.server_name)\r\n\r\n";
 			conn.output_stream.write (mesg, mesg.size(), null);
