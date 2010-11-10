@@ -306,6 +306,7 @@ class Site : Object {
 				do {
 					if (mesg[0:4] == config.site_name) {
 						raw_text = mesg.strip();
+						break;
 					}
 					mesg = input.read_line(null, null);
 				} while (mesg != null);
